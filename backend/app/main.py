@@ -12,10 +12,14 @@ import os
 models.Base.metadata.create_all(bind=database.engine)
 app = FastAPI()
 
+# Comma-separated list of allowed frontend origins, e.g. https://rasoi-genie.vercel.app
+ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get(
+    "FRONTEND_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if o.strip()]
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Add React dev server ports
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -100,10 +104,9 @@ def get_protected_data(user: models.User = Depends(auth.get_current_user)):
         "user_id": user.id
     }
 
-# In a real-world scenario, get this key from a secure environment variable
-TOGETHER_API_KEY = "tgp_v1_3L1Gq3VKiuALrOxkGgBUe9sRPnZWVSx8gcL18coxquI"
-# Also, set it as an environment variable for LangChain's convenience
-os.environ["TOGETHER_API_KEY"] = TOGETHER_API_KEY
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
+if not TOGETHER_API_KEY:
+    print("WARNING: TOGETHER_API_KEY is not set; menu generation will fail.")
 
 @app.post("/generate-menu", response_model=schema.MenuResponse)
 def generate_menu(req: schema.MenuGenerateRequest, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
@@ -198,3 +201,7 @@ def get_menu_history(limit: int = 10, current_user: models.User = Depends(auth.g
         ))
 
     return {"menus": result}
+
+@app.get("/")
+def health():
+    return {"status": "ok"}
