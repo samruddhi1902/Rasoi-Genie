@@ -3,7 +3,7 @@
 from langchain.agents import AgentType, create_react_agent, AgentExecutor
 from langchain.tools import Tool
 from langchain.prompts import PromptTemplate
-from langchain_together import ChatTogether
+from langchain_openai import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain.chains.summarize import load_summarize_chain
@@ -266,9 +266,12 @@ class IndianMenuAgent:
         self.together_api_key = together_api_key
         try:
             os.environ["TOGETHER_API_KEY"] = together_api_key
-            self.llm = ChatTogether(
+            # Together AI exposes an OpenAI-compatible API
+            self.llm = ChatOpenAI(
                 temperature=0.7,
-                model="meta-llama/Llama-3-8b-chat-hf"
+                model=os.environ.get("TOGETHER_MODEL", "meta-llama/Llama-3-8b-chat-hf"),
+                api_key=together_api_key,
+                base_url="https://api.together.xyz/v1",
             )
         except Exception as e:
             print(f"Warning: Could not initialize Together AI client: {e}")
