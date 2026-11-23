@@ -1,11 +1,21 @@
 services:
   - type: web
-    name: fastapi-backend
-    env: python
+    name: rasoi-genie-backend
+    runtime: python
     plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python main.py"
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: DATABASE_URL
-        value: your-mysql-url
-    pythonVersion: 3.11.9
+        sync: false
+      - key: DB_SSL
+        value: "true"
+      - key: TOGETHER_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FRONTEND_ORIGINS
+        sync: false
