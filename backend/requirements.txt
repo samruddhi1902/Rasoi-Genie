@@ -19,7 +19,7 @@ email-validator
 # LangChain and AI
 langchain==0.1.20
 langchain-community==0.0.38
-langchain-together==0.0.2.post1
 duckduckgo-search==4.4.3
 beautifulsoup4
+langchain-openai==0.1.7
 openai<2
