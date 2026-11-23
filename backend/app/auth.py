@@ -4,9 +4,9 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from . import models, database
+import os
 
-# Constants for JWT
-SECRET_KEY = "your-secret-key-change-this-in-production"  # 🔐 Replace with a secure value in production
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-change-me")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
