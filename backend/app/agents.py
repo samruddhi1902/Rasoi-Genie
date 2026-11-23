@@ -167,7 +167,10 @@ class MenuGenerationTools:
     def get_dishes_by_criteria(self, cuisine: str, meal_type: str, diet_type: str, count: int = 5) -> List[str]:
         """Get dishes based on cuisine, meal type, and diet preference"""
         try:
-            cuisines = [c.strip() for c in cuisine.split(',') if c.strip()]
+            norm = lambda x: x.strip().lower().replace('-', '_').replace(' ', '_')
+            cuisines = [norm(c) for c in cuisine.split(',') if c.strip()]
+            meal_type = norm(meal_type)
+            diet_type = norm(diet_type)
             all_dishes = []
             for c in cuisines:
                 dishes = self.db.DISHES.get(c, {}).get(meal_type, {}).get(diet_type, [])
@@ -269,9 +272,9 @@ class IndianMenuAgent:
             # Together AI exposes an OpenAI-compatible API
             self.llm = ChatOpenAI(
                 temperature=0.7,
-                model=os.environ.get("TOGETHER_MODEL", "meta-llama/Llama-3-8b-chat-hf"),
+                model=os.environ.get("LLM_MODEL") or os.environ.get("TOGETHER_MODEL", "meta-llama/Llama-3-8b-chat-hf"),
                 api_key=together_api_key,
-                base_url="https://api.together.xyz/v1",
+                base_url=os.environ.get("LLM_BASE_URL", "https://api.together.xyz/v1"),
             )
         except Exception as e:
             print(f"Warning: Could not initialize Together AI client: {e}")
