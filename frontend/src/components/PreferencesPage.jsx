@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '../services/api';
 import React, { useState, useEffect } from 'react';
 import { ChefHat, Clock, Heart, Utensils, Leaf, Users, Loader2, CheckCircle, ArrowLeft } from 'lucide-react';
 
@@ -88,7 +89,7 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
         const token = localStorage.getItem('token');
         if (!token) return;
 
-        const response = await fetch('http://localhost:8000/preferences', {
+        const response = await fetch(`${API_BASE_URL}/preferences`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -156,7 +157,7 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
         health_conditions: selectedPrefs.health
       };
 
-      const response = await fetch('http://localhost:8000/preferences', {
+      const response = await fetch(`${API_BASE_URL}/preferences`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
