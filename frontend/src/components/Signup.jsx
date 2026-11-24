@@ -1,29 +1,24 @@
 import { useState, useEffect } from 'react';
-import { ChefHat, User, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { User, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { authUtils } from '../utils/auth';
+import AuthShell from './AuthShell';
+
+const inputClass =
+  'w-full pl-12 pr-12 py-3 bg-white border border-line rounded-xl text-ink placeholder-gray-400 focus:ring-2 focus:ring-forest-500 focus:border-forest-500';
 
 function SignupPage({ onNavigate }) {
-  const [formData, setFormData] = useState({
-    username: '',
-    email: '',
-    password: ''
-  });
+  const [formData, setFormData] = useState({ username: '', email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [validations, setValidations] = useState({
-    username: false,
-    email: false,
-    password: false
-  });
+  const [validations, setValidations] = useState({ username: false, email: false, password: false });
 
-  // Form validation
   useEffect(() => {
     setValidations({
       username: authUtils.validateUsername(formData.username),
       email: authUtils.validateEmail(formData.email),
-      password: authUtils.validatePassword(formData.password)
+      password: authUtils.validatePassword(formData.password),
     });
   }, [formData]);
 
@@ -39,8 +34,7 @@ function SignupPage({ onNavigate }) {
 
     try {
       await apiService.register(formData);
-      alert('Registration successful! You can now login.');
-      onNavigate('login');
+      onNavigate('login', { justRegistered: true });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -49,139 +43,117 @@ function SignupPage({ onNavigate }) {
   };
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    setFormData({ ...formData, [e.target.name]: e.target.value });
     if (error) setError('');
   };
 
+  const Tick = ({ ok }) =>
+    ok ? <CheckCircle className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-forest-500" /> : null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-6">
-      <div className="max-w-md w-full">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center space-x-2 mb-4">
-            <ChefHat className="h-10 w-10 text-orange-600" />
-            <span className="text-3xl font-bold text-gray-800">Rasoi Genie</span>
+    <AuthShell
+      headline="Never wonder what to cook again."
+      tagline="Weekly menus, recipes and grocery lists made for your kitchen."
+      eyebrow="Join Rasoi Genie"
+      title="Create your account"
+      subtitle="It takes less than a minute. Then tell us what your family likes to eat."
+    >
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2">
+          <AlertCircle className="h-5 w-5 text-red-500" />
+          <span className="text-red-700 text-sm">{error}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="block text-sm font-semibold text-ink mb-2">Username</label>
+          <div className="relative">
+            <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              name="username"
+              placeholder="Choose a username"
+              className={inputClass}
+              value={formData.username}
+              onChange={handleChange}
+              autoComplete="username"
+              required
+            />
+            <Tick ok={validations.username} />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800">Create Your Account</h2>
-          <p className="text-gray-600 mt-2">Start your personalized meal planning journey</p>
+          <p className="text-xs text-muted mt-1">At least 3 characters</p>
         </div>
 
-        {/* Form */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2">
-              <AlertCircle className="h-5 w-5 text-red-500" />
-              <span className="text-red-700 text-sm">{error}</span>
-            </div>
-          )}
+        <div>
+          <label className="block text-sm font-semibold text-ink mb-2">Email</label>
+          <div className="relative">
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="email"
+              name="email"
+              placeholder="you@example.com"
+              className={inputClass}
+              value={formData.email}
+              onChange={handleChange}
+              autoComplete="email"
+              required
+            />
+            <Tick ok={validations.email} />
+          </div>
+        </div>
 
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  name="username"
-                  placeholder="Enter your username"
-                  className={`w-full pl-12 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all ${
-                    validations.username ? 'border-green-300' : 'border-gray-300'
-                  }`}
-                  value={formData.username}
-                  onChange={handleChange}
-                  required
-                />
-                {formData.username && (
-                  <CheckCircle className={`absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
-                    validations.username ? 'text-green-500' : 'text-gray-300'
-                  }`} />
-                )}
-              </div>
-              <p className="mt-1 text-xs text-gray-500">At least 3 characters</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="email"
-                  name="email"
-                  placeholder="Enter your email"
-                  className={`w-full pl-12 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all ${
-                    validations.email ? 'border-green-300' : 'border-gray-300'
-                  }`}
-                  value={formData.email}
-                  onChange={handleChange}
-                  required
-                />
-                {formData.email && (
-                  <CheckCircle className={`absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
-                    validations.email ? 'text-green-500' : 'text-gray-300'
-                  }`} />
-                )}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  name="password"
-                  placeholder="Create a password"
-                  className={`w-full pl-12 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all ${
-                    validations.password ? 'border-green-300' : 'border-gray-300'
-                  }`}
-                  value={formData.password}
-                  onChange={handleChange}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-gray-500">At least 6 characters</p>
-            </div>
-
+        <div>
+          <label className="block text-sm font-semibold text-ink mb-2">Password</label>
+          <div className="relative">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type={showPassword ? 'text' : 'password'}
+              name="password"
+              placeholder="At least 6 characters"
+              className={inputClass}
+              value={formData.password}
+              onChange={handleChange}
+              autoComplete="new-password"
+              required
+            />
             <button
-              onClick={handleSubmit}
-              disabled={loading || !validations.username || !validations.email || !validations.password}
-              className="w-full bg-gradient-to-r from-orange-600 to-red-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transform hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center space-x-2"
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              {loading ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>Creating Account...</span>
-                </>
-              ) : (
-                <span>Create Account</span>
-              )}
+              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
-
-          <div className="mt-6 text-center">
-            <p className="text-gray-600">
-              Already have an account?{' '}
-              <button
-                onClick={() => onNavigate('login')}
-                className="text-orange-600 hover:text-orange-700 font-medium"
-              >
-                Sign in
-              </button>
-            </p>
-          </div>
         </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-forest-700 text-white py-3.5 rounded-xl font-semibold hover:bg-forest-800 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Creating account...</span>
+            </>
+          ) : (
+            <span>Create account</span>
+          )}
+        </button>
+      </form>
+
+      <div className="mt-8 pt-6 border-t border-line text-center text-muted">
+        Already have an account?{' '}
+        <button
+          onClick={() => onNavigate('login')}
+          className="text-forest-700 font-semibold hover:text-forest-900"
+        >
+          Sign in
+        </button>
       </div>
-    </div>
+    </AuthShell>
   );
 }
 

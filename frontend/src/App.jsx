@@ -48,7 +48,13 @@ function App() {
     <div className="font-sans">
       {currentPage === 'landing' && <LandingPage onNavigate={handleNavigate} />}
       {currentPage === 'signup' && <SignupPage onNavigate={handleNavigate} />}
-      {currentPage === 'login' && <LoginPage onNavigate={handleNavigate} onLogin={handleLogin} />}
+      {currentPage === 'login' && (
+        <LoginPage
+          onNavigate={handleNavigate}
+          onLogin={handleLogin}
+          notice={pageProps.justRegistered ? 'Account created! Sign in to continue.' : ''}
+        />
+      )}
       {currentPage === 'dashboard' && <DashboardPage onNavigate={handleNavigate} user={user} onLogout={handleLogout} />}
       {currentPage === 'preferences' && (
         <PreferencesPage 

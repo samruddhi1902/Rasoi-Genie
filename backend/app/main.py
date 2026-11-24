@@ -108,6 +108,15 @@ TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
 if not TOGETHER_API_KEY:
     print("WARNING: TOGETHER_API_KEY is not set; menu generation will fail.")
 
+_agent_instance = None
+
+def get_agent():
+    """One shared AI client for the whole app (cheaper than building one per request)."""
+    global _agent_instance
+    if _agent_instance is None:
+        _agent_instance = agents.IndianMenuAgent(together_api_key=TOGETHER_API_KEY)
+    return _agent_instance
+
 @app.post("/generate-menu", response_model=schema.MenuResponse)
 def generate_menu(req: schema.MenuGenerateRequest, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
     pref = db.query(models.Preference).filter(models.Preference.user_id == current_user.id).first()
@@ -122,8 +131,18 @@ def generate_menu(req: schema.MenuGenerateRequest, current_user: models.User = D
         "health_conditions": pref.health_conditions.split(",")
     }
 
-    agent = agents.IndianMenuAgent(together_api_key=TOGETHER_API_KEY)
-    menu_result = agent.generate_weekly_menu(preferences)
+    agent = get_agent()
+    # Dishes from the current menu are avoided so each new week feels different
+    previous = db.query(models.WeeklyMenu).filter(models.WeeklyMenu.user_id == current_user.id, models.WeeklyMenu.is_active == 1).first()
+    avoid = []
+    if previous:
+        try:
+            for day_meals in json.loads(previous.menu_data).values():
+                avoid.extend(day_meals.values())
+        except Exception:
+            avoid = []
+
+    menu_result = agent.generate_weekly_menu(preferences, notes=req.notes, locked=req.locked, avoid=avoid)
 
     # Deactivate previous menu
     db.query(models.WeeklyMenu).filter(models.WeeklyMenu.user_id == current_user.id, models.WeeklyMenu.is_active == 1).update({"is_active": 0})
@@ -165,7 +184,7 @@ def regenerate_meal(req: schema.MenuRegenerateRequest, current_user: models.User
         raise HTTPException(status_code=404, detail="Menu not found")
 
     preferences = json.loads(menu.generation_prompt)
-    agent = agents.IndianMenuAgent(together_api_key=TOGETHER_API_KEY)
+    agent = get_agent()
     
     existing_menu = json.loads(menu.menu_data)
     old_dish = existing_menu.get(req.day, {}).get(req.meal, "")
@@ -176,6 +195,8 @@ def regenerate_meal(req: schema.MenuRegenerateRequest, current_user: models.User
         f"Replace '{old_dish}' with a different dish of a similar diet type. "
         f"Other dishes that day: {', '.join(existing_menu.get(req.day, {}).values())}. Do not repeat any of them."
     )
+    if preferences.get("notes"):
+        prompt += f" Follow these user instructions: {preferences['notes']}."
 
     new_dish = None
     try:
@@ -209,6 +230,39 @@ def regenerate_meal(req: schema.MenuRegenerateRequest, current_user: models.User
         "generated_at": menu.created_at,
         "menu_id": menu.id
     }
+
+_grocery_cache = {}
+
+@app.post("/recipe")
+def get_recipe(req: schema.RecipeRequest, current_user: models.User = Depends(auth.get_current_user)):
+    dish = req.dish.strip()
+    if not dish or len(dish) > 150:
+        raise HTTPException(status_code=400, detail="Invalid dish name")
+    servings = max(1, min(req.servings, 12))
+    try:
+        return get_agent().get_recipe(dish, servings)
+    except Exception as e:
+        print(f"Error in recipe generation: {e}")
+        raise HTTPException(status_code=503, detail="Could not load the recipe right now. Please try again.")
+
+@app.post("/grocery-list")
+def get_grocery_list(req: schema.GroceryRequest, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    menu = db.query(models.WeeklyMenu).filter(models.WeeklyMenu.id == req.menu_id, models.WeeklyMenu.user_id == current_user.id).first()
+    if not menu:
+        raise HTTPException(status_code=404, detail="Menu not found")
+    servings = max(1, min(req.servings, 12))
+    cache_key = (menu.id, servings, hash(menu.menu_data))
+    if cache_key in _grocery_cache:
+        return _grocery_cache[cache_key]
+    try:
+        result = get_agent().get_grocery_list(json.loads(menu.menu_data), servings)
+    except Exception as e:
+        print(f"Error in grocery list generation: {e}")
+        raise HTTPException(status_code=503, detail="Could not build the grocery list right now. Please try again.")
+    if len(_grocery_cache) > 200:
+        _grocery_cache.clear()
+    _grocery_cache[cache_key] = result
+    return result
 
 @app.get("/menu-history", response_model=schema.MenuHistoryResponse)
 def get_menu_history(limit: int = 10, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):

@@ -96,6 +96,26 @@ class ApiService {
     });
   }
 
+  async getRecipe(token, dish, servings = 4) {
+    return this.request('/recipe', {
+      method: 'POST',
+      body: { dish, servings },
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  }
+
+  async getGroceryList(token, menuId, servings = 4) {
+    return this.request('/grocery-list', {
+      method: 'POST',
+      body: { menu_id: menuId, servings },
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  }
+
   async getMenuHistory(token, limit = 10) {
     return this.request(`/menu-history?limit=${limit}`, {
       method: 'GET',
@@ -103,15 +123,6 @@ class ApiService {
         'Authorization': `Bearer ${token}`,
       },
     });
-  }
-
-  // Future: Not implemented yet
-  async generateGroceryList(token, menuId) {
-    throw new Error('Grocery list generation not yet implemented');
-  }
-
-  async getRecipeVideos(token, dishName) {
-    throw new Error('Recipe video search not yet implemented');
   }
 }
 

@@ -28,6 +28,16 @@ class PreferenceResponse(PreferenceCreate):  # Renamed from PreferencesResponse
 
 class MenuGenerateRequest(BaseModel):
     regenerate_meal: Optional[str] = None  # Optional: specific meal to regenerate like "Monday-lunch"
+    notes: Optional[str] = None  # Free-text instructions, e.g. "no onion or garlic"
+    locked: Optional[Dict[str, Dict[str, str]]] = None  # Dishes to keep: {"Monday": {"lunch": "Rajma + Rice"}}
+
+class RecipeRequest(BaseModel):
+    dish: str
+    servings: int = 4
+
+class GroceryRequest(BaseModel):
+    menu_id: int
+    servings: int = 4
 
 class MenuResponse(BaseModel):
     menu: Dict[str, Dict[str, str]]

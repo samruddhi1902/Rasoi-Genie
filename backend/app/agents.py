@@ -16,6 +16,29 @@ import random
 from datetime import datetime, timedelta
 import os
 
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+HEALTH_GUIDE = {
+    "diabetes": "Diabetes-friendly: low glycaemic index, prefer whole grains and millets (jowar, bajra, ragi, brown rice, whole wheat), "
+                "plenty of vegetables and protein, avoid refined flour, sugar, sweets and deep-fried food.",
+    "bp": "Blood-pressure-friendly: low sodium, avoid pickles, papad and heavily salted or processed items, "
+          "favour vegetables, curd and fruit, keep fried food light.",
+    "cholesterol": "Cholesterol-friendly: low saturated fat, minimal ghee, butter, cream and frying, "
+                   "favour oats, dals, legumes, vegetables and lean protein, avoid red meat.",
+}
+
+TIME_LIMITS = {"<15min": 15, "<30min": 30, "<45min": 45}
+
+_RECIPE_CACHE: Dict[Any, Any] = {}
+
+
+def _extract_json(text: str) -> Dict[str, Any]:
+    start, end = text.find("{"), text.rfind("}") + 1
+    if start == -1 or end <= start:
+        raise ValueError("No JSON found in model response")
+    return json.loads(text[start:end])
+
+
 class IndianMenuDatabase:
     """Simulated database of Indian dishes - replace with actual DB queries later"""
     
@@ -401,79 +424,240 @@ Thought: {agent_scratchpad}
             handle_parsing_errors=True
         )
     
-    def generate_weekly_menu(self, preferences: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate a weekly menu with a single fast LLM call (falls back to the built-in list)."""
+    # ------------------------------------------------------------------
+    # AI helpers
+    # ------------------------------------------------------------------
+    def _ask_json(self, prompt: str) -> Dict[str, Any]:
         if not self.llm:
-            return self._fallback_menu_generation(preferences)
-        try:
-            return self._direct_menu_generation(preferences)
-        except Exception as e:
-            print(f"Error in menu generation: {e}")
-            return self._fallback_menu_generation(preferences)
+            raise RuntimeError("AI service is not configured")
+        response = self.llm.invoke(prompt)
+        text = response.content if hasattr(response, "content") else str(response)
+        return _extract_json(text)
 
-    def _direct_menu_generation(self, preferences: Dict[str, Any]) -> Dict[str, Any]:
-        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        meals = [m.strip().lower() for m in preferences.get("meals", []) if m and m.strip()] or ["breakfast", "lunch", "dinner"]
+    @staticmethod
+    def _clean_locked(locked: Any, meals: List[str]) -> Dict[str, Dict[str, str]]:
+        cleaned: Dict[str, Dict[str, str]] = {}
+        if not isinstance(locked, dict):
+            return cleaned
+        for day, day_meals in locked.items():
+            if day not in DAYS or not isinstance(day_meals, dict):
+                continue
+            for meal, dish in day_meals.items():
+                meal_key = str(meal).lower()
+                if meal_key in meals and isinstance(dish, str) and dish.strip():
+                    cleaned.setdefault(day, {})[meal_key] = dish.strip()
+        return cleaned
+
+    # ------------------------------------------------------------------
+    # Menu generation
+    # ------------------------------------------------------------------
+    def generate_weekly_menu(self, preferences: Dict[str, Any], notes: Any = None,
+                             locked: Any = None, avoid: Any = None) -> Dict[str, Any]:
+        """Generate a weekly menu with one AI call (falls back to the built-in dish list)."""
+        preferences = dict(preferences)
+        meals = [m.strip().lower() for m in preferences.get("meals", []) if m and m.strip()] \
+            or ["breakfast", "lunch", "dinner"]
+        preferences["meals"] = meals
+        if isinstance(notes, str) and notes.strip():
+            preferences["notes"] = notes.strip()[:500]
+
+        locked_clean = self._clean_locked(locked, meals)
+        locked_dishes = {d.lower() for day in locked_clean.values() for d in day.values()}
+        avoid_list = sorted({a for a in (avoid or []) if isinstance(a, str) and a.strip()
+                             and a.lower() not in locked_dishes})
+
+        if self.llm:
+            try:
+                return self._direct_menu_generation(preferences, locked_clean, avoid_list)
+            except Exception as e:
+                print(f"Error in menu generation: {e}")
+        return self._fallback_menu_generation(preferences, locked_clean, avoid_list)
+
+    def _direct_menu_generation(self, preferences: Dict[str, Any], locked: Dict[str, Dict[str, str]],
+                                avoid: List[str]) -> Dict[str, Any]:
+        meals = preferences["meals"]
         cuisines = [c.strip() for c in preferences.get("cuisine", []) if c and c.strip()]
         diet_list = [d.strip() for d in (preferences.get("diet_type") or "veg").split(",") if d.strip()]
         diet = ", ".join(diet_list)
         mixed = len(diet_list) > 1
 
-        # Dishes from the built-in list, used as inspiration for the model
         ideas = []
         for c in cuisines:
             for meal in meals:
-                found = self.tools_handler.get_dishes_by_criteria(c, meal, diet, 8)
+                found = self.tools_handler.get_dishes_by_criteria(c, meal, ",".join(diet_list), 8)
                 if isinstance(found, list):
                     ideas.extend(found)
         ideas = sorted(set(ideas))
 
-        prompt = (
-            "You are an expert Indian meal planner. Create a 7-day meal plan.\n"
-            f"Diet types the user eats: {diet}\n"
-            + ("This is a MIXED diet: spread the selected diet types sensibly across the week "
-               "(for example, if non-veg is selected together with veg, serve non-veg in roughly "
-               "a third to half of the lunches and dinners and keep the other meals vegetarian; "
-               "if vegan is also selected, include some fully vegan meals). "
-               "Do NOT make every meal the same diet type.\n" if mixed else "")
-            + 
-            f"Cuisines: {', '.join(cuisines) or 'Indian'}\n"
-            f"Meals per day: {', '.join(meals)}\n"
-            f"Max cooking time: {preferences.get('cooking_time') or 'any'}\n"
-            f"Health conditions: {', '.join(h for h in preferences.get('health_conditions', []) if h) or 'none'}\n"
-            + (f"Example dishes you may use or take inspiration from: {', '.join(ideas)}\n" if ideas else "")
-            + "Rules: no dish repeats during the week; keep the week nutritionally balanced; "
-              "respect the diet and health conditions.\n"
-              "Reply with ONLY a valid JSON object, no explanation and no markdown. "
-              f"Keys are {days}. Each value is an object whose keys are exactly {meals} "
-              "and whose values are a single dish name (a string)."
+        lines = [
+            "You are an expert Indian home-cooking meal planner. Create a practical 7-day meal plan for an Indian household.",
+            f"Diet types the user eats: {diet}.",
+        ]
+        if mixed:
+            lines.append(
+                "This is a MIXED diet. Spread the selected diet types sensibly across the week: if non-veg is selected "
+                "together with veg, serve non-veg in roughly a third to half of the lunches and dinners and keep the other "
+                "meals vegetarian; breakfasts and snacks may stay vegetarian. If vegan is also selected, include some fully "
+                "vegan meals. Do NOT make every meal the same diet type."
+            )
+        else:
+            lines.append(f"Every dish must strictly be {diet}.")
+        lines.append(f"Cuisines to spread across the week: {', '.join(cuisines) or 'Indian'}.")
+        lines.append(f"Meals per day: {', '.join(meals)}.")
+
+        limit = TIME_LIMITS.get(preferences.get("cooking_time") or "")
+        if limit:
+            lines.append(f"Every dish must be quick: under {limit} minutes of cooking time.")
+
+        health = [h.strip() for h in preferences.get("health_conditions", []) if h and h.strip()]
+        for h in health:
+            if h in HEALTH_GUIDE:
+                lines.append(HEALTH_GUIDE[h])
+
+        if preferences.get("notes"):
+            lines.append("Extra instructions from the user (follow strictly): " + preferences["notes"])
+        if avoid:
+            lines.append("Do not reuse any of these dishes from last week: " + ", ".join(avoid) + ".")
+        if locked:
+            fixed = "; ".join(f"{d} {m} = {dish}" for d, ms in locked.items() for m, dish in ms.items())
+            lines.append("These dishes are FIXED (chosen by the user). Keep them exactly and plan the rest around them: " + fixed + ".")
+        if ideas:
+            lines.append("Example dishes you may use or take inspiration from: " + ", ".join(ideas) + ".")
+
+        lines.append(
+            "Quality rules: every dish is unique across the week; vary the main ingredient and cooking style from day to day; "
+            "breakfast and snacks are lighter, lunch is the most substantial meal and dinner is lighter than lunch; "
+            "pair mains with the accompaniment they are normally served with (for example 'Dal Tadka + Jeera Rice' or "
+            "'Aloo Gobi + Roti'); use commonly known dish names with no descriptions; rotate protein sources (dals, legumes, "
+            "paneer, eggs, and fish or chicken only if the diet allows) and include seasonal vegetables; make Sunday lunch a little special."
         )
+        lines.append(
+            "Reply with ONLY a valid JSON object, no explanation and no markdown. "
+            f"Keys are {DAYS}. Each value is an object whose keys are exactly {meals} and whose values are a single dish name (a string)."
+        )
+        base_prompt = "\n".join(lines)
 
-        response = self.llm.invoke(prompt)
-        text = response.content if hasattr(response, "content") else str(response)
-        start, end = text.find("{"), text.rfind("}") + 1
-        if start == -1 or end <= start:
-            raise ValueError("No JSON found in model response")
-        data = json.loads(text[start:end])
+        def build_menu(data: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+            menu: Dict[str, Dict[str, str]] = {}
+            for day in DAYS:
+                day_data = data.get(day) or {}
+                lowered = {str(k).lower(): v for k, v in day_data.items()} if isinstance(day_data, dict) else {}
+                menu[day] = {}
+                for meal in meals:
+                    dish = locked.get(day, {}).get(meal) or lowered.get(meal)
+                    if isinstance(dish, list):
+                        dish = ", ".join(str(x) for x in dish)
+                    if not dish or not str(dish).strip():
+                        raise ValueError(f"Missing {meal} for {day}")
+                    menu[day][meal] = str(dish).strip()
+            return menu
 
-        menu = {}
-        for day in days:
-            day_data = data.get(day) or {}
-            lowered = {str(k).lower(): v for k, v in day_data.items()} if isinstance(day_data, dict) else {}
-            menu[day] = {}
-            for meal in meals:
-                dish = lowered.get(meal)
-                if isinstance(dish, list):
-                    dish = ", ".join(str(x) for x in dish)
-                if not dish or not str(dish).strip():
-                    raise ValueError(f"Missing {meal} for {day}")
-                menu[day][meal] = str(dish).strip()
+        def repeated(menu: Dict[str, Dict[str, str]]) -> List[str]:
+            seen: Dict[str, int] = {}
+            for day, ms in menu.items():
+                for meal, dish in ms.items():
+                    if locked.get(day, {}).get(meal):
+                        continue
+                    seen[dish.lower()] = seen.get(dish.lower(), 0) + 1
+            return [d for d, n in seen.items() if n > 1]
+
+        prompt = base_prompt
+        menu = None
+        for attempt in range(2):
+            menu = build_menu(self._ask_json(prompt))
+            dups = repeated(menu)
+            if not dups:
+                break
+            prompt = base_prompt + "\nYour previous answer repeated these dishes: " + ", ".join(dups) + ". Fix this: every dish must be unique."
 
         return {
             "menu": menu,
             "preferences_used": preferences,
             "generated_at": datetime.now().isoformat(),
         }
+
+    # ------------------------------------------------------------------
+    # Recipes and grocery lists
+    # ------------------------------------------------------------------
+    def get_recipe(self, dish: str, servings: int = 4) -> Dict[str, Any]:
+        key = (dish.lower(), servings)
+        if key in _RECIPE_CACHE:
+            return _RECIPE_CACHE[key]
+
+        prompt = (
+            f'You are an Indian home-cooking expert. Give a clear, practical recipe for "{dish}" for {servings} servings, '
+            "suitable for a home kitchen.\n"
+            "Reply with ONLY valid JSON (no markdown) in exactly this shape:\n"
+            '{"name": "...", "description": "one short sentence", "time_minutes": 30, "calories_per_serving": 350, '
+            '"diet": "veg", "ingredients": [{"item": "...", "quantity": "..."}], "steps": ["..."], "tip": "one short helpful tip"}\n'
+            'The "diet" value is one of: veg, non-veg, vegan. Use household measures (grams, cups, tsp, tbsp). '
+            "Keep it to at most 12 ingredients and 8 short steps. If the dish name has several parts "
+            "(like 'Dal Tadka + Jeera Rice'), cover all parts in the ingredients and steps."
+        )
+        data = self._ask_json(prompt)
+
+        def to_int(value: Any, default: int) -> int:
+            try:
+                return int(float(str(value).split()[0]))
+            except Exception:
+                return default
+
+        ingredients = []
+        for ing in data.get("ingredients", []) or []:
+            if isinstance(ing, dict) and ing.get("item"):
+                ingredients.append({"item": str(ing["item"]), "quantity": str(ing.get("quantity", ""))})
+            elif isinstance(ing, str) and ing.strip():
+                ingredients.append({"item": ing.strip(), "quantity": ""})
+        steps = [str(x) for x in (data.get("steps") or []) if str(x).strip()]
+        if not ingredients or not steps:
+            raise ValueError("Incomplete recipe from model")
+
+        recipe = {
+            "name": str(data.get("name") or dish),
+            "description": str(data.get("description") or ""),
+            "time_minutes": to_int(data.get("time_minutes"), 30),
+            "servings": servings,
+            "calories_per_serving": to_int(data.get("calories_per_serving"), 0),
+            "diet": str(data.get("diet") or ""),
+            "ingredients": ingredients,
+            "steps": steps,
+            "tip": str(data.get("tip") or ""),
+        }
+        if len(_RECIPE_CACHE) > 500:
+            _RECIPE_CACHE.clear()
+        _RECIPE_CACHE[key] = recipe
+        return recipe
+
+    def get_grocery_list(self, menu: Dict[str, Dict[str, str]], servings: int = 4) -> Dict[str, Any]:
+        menu_text = "\n".join(
+            f"{day}: " + "; ".join(f"{meal}: {dish}" for meal, dish in meals.items())
+            for day, meals in menu.items()
+        )
+        prompt = (
+            f"Create ONE combined weekly grocery list for {servings} people for this meal plan:\n{menu_text}\n"
+            "Merge duplicate ingredients and add up quantities sensibly (use kg, g, litres, ml or counts). "
+            "Assume salt and water are available. Do not list the dishes.\n"
+            'Reply with ONLY valid JSON (no markdown): {"categories": [{"name": "Vegetables & Fruits", '
+            '"items": [{"item": "Onions", "quantity": "1 kg"}]}]}\n'
+            "Use only these category names, in this order, and skip empty ones: Vegetables & Fruits, "
+            "Dals, Grains & Flours, Dairy & Eggs, Meat & Fish, Spices & Masalas, Oils & Others."
+        )
+        data = self._ask_json(prompt)
+        categories = []
+        for cat in data.get("categories", []) or []:
+            if not isinstance(cat, dict):
+                continue
+            items = []
+            for it in cat.get("items", []) or []:
+                if isinstance(it, dict) and it.get("item"):
+                    items.append({"item": str(it["item"]), "quantity": str(it.get("quantity", ""))})
+                elif isinstance(it, str) and it.strip():
+                    items.append({"item": it.strip(), "quantity": ""})
+            if items:
+                categories.append({"name": str(cat.get("name") or "Others"), "items": items})
+        if not categories:
+            raise ValueError("Empty grocery list from model")
+        return {"categories": categories}
 
     def _parse_agent_response(self, response: str, preferences: Dict) -> Dict[str, Any]:
         """Parse agent response and structure it properly"""
@@ -497,21 +681,25 @@ Thought: {agent_scratchpad}
             print(f"Error parsing agent response: {e}")
             return self._fallback_menu_generation(preferences)
     
-    def _fallback_menu_generation(self, preferences: Dict) -> Dict[str, Any]:
-        """Fallback menu generation if agent fails"""
-        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    def _fallback_menu_generation(self, preferences: Dict, locked: Dict = None, avoid: List[str] = None) -> Dict[str, Any]:
+        """Fallback menu generation if the AI is unavailable"""
+        locked = locked or {}
+        avoid_set = set(avoid or [])
         fallback_menu = {}
-        
+
         diet_type = preferences.get('diet_type') or 'veg'
         diets = [d.strip() for d in diet_type.split(',') if d.strip()] or ['veg']
         cuisines = preferences.get('cuisine') or ['north_indian']
         meals = preferences.get('meals') or ['breakfast', 'lunch', 'dinner']
 
-        used_dishes = set()
+        used_dishes = set(d for day in locked.values() for d in day.values())
 
-        for day in days:
+        for day in DAYS:
             fallback_menu[day] = {}
             for meal in meals:
+                if locked.get(day, {}).get(meal):
+                    fallback_menu[day][meal] = locked[day][meal]
+                    continue
                 dish_found = False
                 # Try the selected diets in random order so they get mixed across the week.
                 # Breakfast and snacks lean vegetarian when veg is one of the choices.
@@ -524,8 +712,10 @@ Thought: {agent_scratchpad}
                     for cuisine in cuisines:
                         dishes = self.tools_handler.get_dishes_by_criteria(cuisine, meal, diet, 20)
                         if isinstance(dishes, list) and dishes:
-                            available_dishes = [d for d in dishes if d not in used_dishes] or dishes
-                            selected_dish = random.choice(available_dishes)
+                            available = ([d for d in dishes if d not in used_dishes and d not in avoid_set]
+                                         or [d for d in dishes if d not in used_dishes]
+                                         or dishes)
+                            selected_dish = random.choice(available)
                             fallback_menu[day][meal] = selected_dish
                             used_dishes.add(selected_dish)
                             dish_found = True
