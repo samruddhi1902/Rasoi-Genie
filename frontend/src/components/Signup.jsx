@@ -63,7 +63,7 @@ function SignupPage({ onNavigate }) {
         <div className="text-center mb-8">
           <div className="flex items-center justify-center space-x-2 mb-4">
             <ChefHat className="h-10 w-10 text-orange-600" />
-            <span className="text-3xl font-bold text-gray-800">MealPlanner</span>
+            <span className="text-3xl font-bold text-gray-800">Rasoi Genie</span>
           </div>
           <h2 className="text-2xl font-bold text-gray-800">Create Your Account</h2>
           <p className="text-gray-600 mt-2">Start your personalized meal planning journey</p>

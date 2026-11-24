@@ -8,7 +8,7 @@ function LandingPage({ onNavigate }) {
         <nav className="flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <ChefHat className="h-8 w-8 text-orange-600" />
-            <span className="text-2xl font-bold text-gray-800">MealPlanner</span>
+            <span className="text-2xl font-bold text-gray-800">Rasoi Genie</span>
           </div>
           <div className="space-x-4">
             <button 

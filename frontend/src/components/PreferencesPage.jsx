@@ -21,7 +21,7 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
       id: 'diet',
       title: 'Dietary Preferences',
       icon: <Leaf className="w-6 h-6" />,
-      description: 'What suits your lifestyle?',
+      description: 'Pick one or more. We will mix them across your week.',
       options: [
         { id: 'veg', label: 'Vegetarian', emoji: '🥬', color: 'bg-green-500' },
         { id: 'non-veg', label: 'Non-Vegetarian', emoji: '🍗', color: 'bg-red-500' },
@@ -98,10 +98,13 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
         if (response.ok) {
           const prefs = await response.json();
           setSelectedPrefs({
-            diet: prefs.diet_type ? [prefs.diet_type.replace('-', '-')] : [],
+            diet: prefs.diet_type ? prefs.diet_type.split(',').map(d => d.trim()).filter(Boolean) : [],
             cuisine: prefs.cuisine || [],
             meals: prefs.meals || [],
-            time: prefs.cooking_time ? [prefs.cooking_time.replace(' ', '').toLowerCase()] : [],
+            time: (() => {
+              const opt = categories.find(c => c.id === 'time')?.options.find(o => o.value === prefs.cooking_time);
+              return opt ? [opt.id] : [];
+            })(),
             health: prefs.health_conditions || []
           });
         }
@@ -118,13 +121,16 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
   const togglePreference = (category, optionId) => {
     setSelectedPrefs(prev => ({
       ...prev,
-      [category]: category === 'diet' || category === 'time' 
-        ? [optionId] // Single selection for diet and time
+      [category]: category === 'time'
+        ? [optionId] // Single selection for cooking time only
         : prev[category].includes(optionId)
           ? prev[category].filter(id => id !== optionId)
           : [...prev[category], optionId]
     }));
   };
+
+  const requiredSteps = ['diet', 'cuisine', 'meals', 'time'];
+  const canContinue = !requiredSteps.includes(categories[currentStep].id) || selectedPrefs[categories[currentStep].id].length > 0;
 
   const nextStep = () => {
     if (currentStep < categories.length - 1) {
@@ -148,7 +154,7 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
 
       // Map frontend selections to backend format
       const preferences = {
-        diet_type: selectedPrefs.diet[0] || '',
+        diet_type: selectedPrefs.diet.join(','),
         cuisine: selectedPrefs.cuisine,
         meals: selectedPrefs.meals,
         cooking_time: selectedPrefs.time.length > 0 
@@ -222,7 +228,7 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
                   <ChefHat className="w-8 h-8 text-purple-300" />
                 </div>
                 <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-purple-200 bg-clip-text text-transparent">
-                  {isUpdate ? 'Update Preferences' : 'FlavorFlow'}
+                  {isUpdate ? 'Update Preferences' : 'Rasoi Genie'}
                 </h1>
               </div>
               {user && (
@@ -333,7 +339,7 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
             {currentStep === categories.length - 1 ? (
               <button 
                 onClick={handleFinish}
-                disabled={saving}
+                disabled={saving || selectedPrefs.diet.length === 0 || selectedPrefs.cuisine.length === 0 || selectedPrefs.meals.length === 0 || selectedPrefs.time.length === 0}
                 className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-semibold hover:from-purple-700 hover:to-pink-700 transition-all duration-300 transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
               >
                 {saving ? (
@@ -351,7 +357,8 @@ const PreferencesPage = ({ onNavigate, user, isUpdate = false }) => {
             ) : (
               <button
                 onClick={nextStep}
-                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-semibold hover:from-purple-700 hover:to-pink-700 transition-all duration-300 transform hover:scale-105"
+                disabled={!canContinue}
+                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-semibold hover:from-purple-700 hover:to-pink-700 transition-all duration-300 transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
               >
                 Next
               </button>

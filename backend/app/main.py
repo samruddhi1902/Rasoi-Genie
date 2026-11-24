@@ -167,11 +167,36 @@ def regenerate_meal(req: schema.MenuRegenerateRequest, current_user: models.User
     preferences = json.loads(menu.generation_prompt)
     agent = agents.IndianMenuAgent(together_api_key=TOGETHER_API_KEY)
     
-    # Use the agent to find a new dish, which might involve a search
-    prompt = f"Suggest one new dish for {req.day}'s {req.meal} with cuisine '{preferences['cuisine'][0]}' and diet type '{preferences['diet_type']}'. The current dishes are: {json.loads(menu.menu_data)[req.day].values()}. Do not repeat any of them."
-    
-    response = agent.agent_executor.invoke({"input": prompt})
-    new_dish = response['output']
+    existing_menu = json.loads(menu.menu_data)
+    old_dish = existing_menu.get(req.day, {}).get(req.meal, "")
+    cuisines_text = ", ".join(preferences.get("cuisine", [])) or "Indian"
+    prompt = (
+        f"Suggest one new Indian dish for {req.day}'s {req.meal}. "
+        f"Cuisines: {cuisines_text}. Allowed diet types: {preferences.get('diet_type', 'veg')}. "
+        f"Replace '{old_dish}' with a different dish of a similar diet type. "
+        f"Other dishes that day: {', '.join(existing_menu.get(req.day, {}).values())}. Do not repeat any of them."
+    )
+
+    new_dish = None
+    try:
+        if agent.llm:
+            reply = agent.llm.invoke(prompt + " Reply with ONLY the dish name, nothing else.")
+            text = reply.content if hasattr(reply, "content") else str(reply)
+            new_dish = text.strip().strip('"').strip()
+    except Exception as e:
+        print(f"Error regenerating meal: {e}")
+    if not new_dish:
+        import random
+        pool = []
+        for c in preferences.get("cuisine", []):
+            found = agent.tools_handler.get_dishes_by_criteria(c, req.meal, preferences.get("diet_type", "veg"), 20)
+            if isinstance(found, list):
+                pool.extend(found)
+        existing = set(json.loads(menu.menu_data)[req.day].values())
+        pool = [d for d in pool if d not in existing]
+        if not pool:
+            raise HTTPException(status_code=503, detail="Could not generate a new dish right now. Please try again.")
+        new_dish = random.choice(pool)
 
     current_menu = json.loads(menu.menu_data)
     current_menu[req.day][req.meal] = new_dish
